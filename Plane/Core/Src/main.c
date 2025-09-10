@@ -40,37 +40,6 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-int _write(int file, char *p, int len)
-{
-#define PRINT_CDC 1
-#if PRINT_CDC == 0
-	for(int i=0; i<len; i++)
-	{
-		while(!LL_USART_IsActiveFlag_TXE(USART2));
-		LL_USART_TransmitData8(USART2, *(p+i));
-	}
-#else
-	static uint8_t* prePacket = 0;
-	static uint16_t preLenth = 0;
-
-	uint8_t* temp = prePacket;
-	prePacket = (uint8_t*)malloc((len+preLenth)*sizeof(uint8_t));
-
-	memcpy(prePacket, temp, preLenth);
-	memcpy(prePacket+preLenth, p, len);
-
-	free(temp);
-	preLenth += len;
-
-	if (USBD_OK == CDC_Transmit_FS((uint8_t*)prePacket, preLenth)) {
-		preLenth = 0;
-		return preLenth;
-	}
-
-	return -1;
-#endif
-}
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -116,10 +85,43 @@ static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
 /* USER CODE BEGIN PFP */
 extern int PARM_load(void);
+void I2C_Bus_Recovery(void);
+extern void AAS_getValue();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int _write(int file, char *p, int len)
+{
+#define PRINT_CDC 1
+#if PRINT_CDC == 0
+	for(int i=0; i<len; i++)
+	{
+		while(!LL_USART_IsActiveFlag_TXE(USART2));
+		LL_USART_TransmitData8(USART2, *(p+i));
+	}
+#else
+	static uint8_t* prePacket = 0;
+	static uint16_t preLenth = 0;
+
+	uint8_t* temp = prePacket;
+	prePacket = (uint8_t*)malloc((len+preLenth)*sizeof(uint8_t));
+
+	memcpy(prePacket, temp, preLenth);
+	memcpy(prePacket+preLenth, p, len);
+
+	free(temp);
+	preLenth += len;
+
+	if (USBD_OK == CDC_Transmit_FS((uint8_t*)prePacket, preLenth)) {
+		preLenth = 0;
+		return preLenth;
+	}
+
+	return -1;
+#endif
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -190,6 +192,8 @@ int main(void)
   RC_Initialization();
   AHRS_Initialization();
 
+  LL_I2C_Enable(I2C1);
+
   /* INITIAILIZE  END */
   BuzzerPlayOneCycle();
   SERVO_doArm();
@@ -204,6 +208,8 @@ int main(void)
   {
 	  RC_GetData();
 	  AHRS_GetData();
+
+	  AAS_getValue();
 
 	  if(FS_IsFailsafe() == 0){
 		  SERVO_control();
