@@ -85,8 +85,6 @@ static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
 /* USER CODE BEGIN PFP */
 extern int PARM_load(void);
-void I2C_Bus_Recovery(void);
-extern void AAS_getValue();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -117,7 +115,6 @@ int _write(int file, char *p, int len)
 		preLenth = 0;
 		return preLenth;
 	}
-
 	return -1;
 #endif
 }
@@ -208,8 +205,6 @@ int main(void)
   {
 	  RC_GetData();
 	  AHRS_GetData();
-
-	  AAS_getValue();
 
 	  if(FS_IsFailsafe() == 0){
 		  SERVO_control();
