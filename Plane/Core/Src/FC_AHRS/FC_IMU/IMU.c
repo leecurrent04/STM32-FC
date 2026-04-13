@@ -10,9 +10,11 @@
 /* Includes ------------------------------------------------------------------*/
 #include <FC_AHRS/FC_IMU/IMU_module.h>
 
+#include <FC_Basic/SPI.h>
+
 
 /* Macros --------------------------------------------------------------------*/
-
+icm42688p_handle_t icm42688p;
 
 /* Functions -----------------------------------------------------------------*/
 /*
@@ -26,7 +28,15 @@
 uint8_t IMU_Initialization(void)
 {
 	uint8_t err = 0;
-	err |= (ICM42688P_Initialization((SCALED_IMU *)&msg.scaled_imu)<<0);
+
+
+	icm42688p_cfg_t icm42688p_configure;
+	icm42688p_configure.bus.spi_interface = SPI1;
+	icm42688p_configure.bus.cs_port = GYRO1_NSS_GPIO_Port;
+	icm42688p_configure.bus.cs_pin = GYRO1_NSS_Pin;
+
+	icm42688p = ICM42688P_Create(&icm42688p_configure);
+	err |= (ICM42688P_Initialization(icm42688p)<<0);
 	err |= (BMI323_Initialization((SCALED_IMU*)&msg.scaled_imu2)<<1);
 
 	IMU_CalibrateOffset();
@@ -59,7 +69,7 @@ uint8_t IMU_GetData(void)
  */
 void IMU_CalibrateOffset(void)
 {
-	ICM42688P_CalibrateOffset(10);
+	ICM42688P_CalibrateOffset(icm42688p, 10);
 
 	return;
 }
@@ -79,7 +89,7 @@ unsigned int IMU_getDataRaw(void)
 	uint16_t retVal = 0;
 
 	// SCALED_IMU
-	retVal = (ICM42688P_GetData() << 0);
+	retVal = (ICM42688P_GetData(icm42688p) << 0);
 
 	// SCALED_IMU2
 	retVal = (BMI323_GetData() << 4);

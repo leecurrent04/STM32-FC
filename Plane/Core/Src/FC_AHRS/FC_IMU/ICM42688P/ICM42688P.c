@@ -13,48 +13,66 @@
 
 
 /* Variables -----------------------------------------------------------------*/
-// 출력 결과를 저장하는 변수의 주소를 저장.
-SCALED_IMU* icm42688p;
 
 
 /* Functions -----------------------------------------------------------------*/
+icm42688p_handle_t ICM42688P_Create(const icm42688p_cfg_t* user_config)
+{
+	icm42688p_handle_t handle = malloc(sizeof(icm42688p_obj));
+
+	if(0 == handle) { return 0; }
+
+	icm42688p_obj*  device = (icm42688p_obj*)handle;
+	device->config = *user_config;
+
+	return handle;
+}
+
+
+uint8_t ICM42688P_Del(icm42688p_handle_t handle)
+{
+	if(0 == handle) { return 1; }
+	free(handle);
+
+	return 0;
+}
+
+
 /*
  * @brief 초기 설정
  * @detail SPI 연결 수행, 감도 설정, offset 제거
  * @retval 0 : 완료
  * @retval 1 : 센서 없음
  */
-uint8_t ICM42688P_Initialization(SCALED_IMU* p)
+uint8_t ICM42688P_Initialization(icm42688p_handle_t handle)
 {
-	icm42688p = p;
+	icm42688p_obj* device = (icm42688p_obj*)handle;
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
 
-	SPI_Enable(DEVICE_SPI);
-	CHIP_DESELECT();
+	SPI_Enable(bus);
+	SPI_ChipDiselect(bus);
 
-	if(ICM42688P_readbyte(WHO_AM_I) != 0x47)
-	{
-		return 1;
-	}
+	if(SPI_readbyte(bus, WHO_AM_I) != 0x47) { return 1; }
 
 	// PWR_MGMT0
-	ICM42688P_writebyte(PWR_MGMT0, 0x0F); // Temp on, ACC, GYRO LPF Mode
+	SPI_writebyte(bus, PWR_MGMT0, 0x0F); // Temp on, ACC, GYRO LPF Mode
 	HAL_Delay(50);
 
 	// GYRO_CONFIG0
-	ICM42688P_writebyte(GYRO_CONFIG0, 0x26); // Gyro sensitivity 1000 dps, 1kHz
+	SPI_writebyte(bus, GYRO_CONFIG0, 0x26); // Gyro sensitivity 1000 dps, 1kHz
 	HAL_Delay(50);
-	ICM42688P_writebyte(GYRO_CONFIG1, 0x00); // Gyro temp DLPF 4kHz, UI Filter 1st, 	DEC2_M2 reserved
-	HAL_Delay(50);
-
-	ICM42688P_writebyte(ACCEL_CONFIG0, 0x46); // Acc sensitivity 4g, 1kHz
-	HAL_Delay(50);
-	ICM42688P_writebyte(ACCEL_CONFIG1, 0x00); // Acc UI Filter 1st, 	DEC2_M2 reserved
+	SPI_writebyte(bus, GYRO_CONFIG1, 0x00); // Gyro temp DLPF 4kHz, UI Filter 1st, 	DEC2_M2 reserved
 	HAL_Delay(50);
 
-	ICM42688P_writebyte(GYRO_ACCEL_CONFIG0, 0x11); // LPF default max(400Hz,ODR)/4
+	SPI_writebyte(bus, ACCEL_CONFIG0, 0x46); // Acc sensitivity 4g, 1kHz
+	HAL_Delay(50);
+	SPI_writebyte(bus, ACCEL_CONFIG1, 0x00); // Acc UI Filter 1st, 	DEC2_M2 reserved
 	HAL_Delay(50);
 
-	ICM42688P_getSensitivity();
+	SPI_writebyte(bus, GYRO_ACCEL_CONFIG0, 0x11); // LPF default max(400Hz,ODR)/4
+	HAL_Delay(50);
+
+	ICM42688P_getSensitivity(device);
 
 	return 0; //OK
 }
@@ -65,17 +83,19 @@ uint8_t ICM42688P_Initialization(SCALED_IMU* p)
  * @detail 자이로, 가속도 및 온도 데이터 로딩, 물리량 변환
  * @retval 0 : 완료
  */
-uint8_t ICM42688P_GetData(void)
+uint8_t ICM42688P_GetData(icm42688p_handle_t handle)
 {
+	icm42688p_obj* device = (icm42688p_obj*)handle;
+
 	// Check data is ready
-	if(ICM42688P_dataReady()) return 1;
+	if(ICM42688P_dataReady(device)) return 1;
 
-	ICM42688P_get6AxisRawData(&msg.raw_imu);
+	ICM42688P_get6AxisRawData(device);
 
-	icm42688p->time_boot_ms = msg.system_time.time_boot_ms;
+	device->data.time_boot_ms = msg.system_time.time_boot_ms;
 
-	ICM42688P_convertGyroRaw2Dps();
-	ICM42688P_convertAccRaw2G();
+	ICM42688P_convertGyroRaw2Dps(device);
+	ICM42688P_convertAccRaw2G(device);
 
 	return 0;
 }
@@ -87,24 +107,22 @@ uint8_t ICM42688P_GetData(void)
  * @param none
  * @retval none
  */
-uint8_t ICM42688P_CalibrateOffset(int samples)
+uint8_t ICM42688P_CalibrateOffset(icm42688p_handle_t handle, int samples)
 {
+	icm42688p_obj* device = (icm42688p_obj*)handle;
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
 	int16_t offset[6] = {0,};
 
-	for(int cnt=0; cnt<samples;)
+	for(int cnt=0; cnt<samples; cnt++)
 	{
-		RAW_IMU imu;
-		if(ICM42688P_get6AxisRawData(&imu)){
-			continue;
-		}
-		offset[0] += imu.xacc;
-		offset[1] += imu.yacc;
-		offset[2] += imu.zacc;
-		offset[3] += imu.xgyro;
-		offset[4] += imu.ygyro;
-		offset[5] += imu.zgyro;
+		if(ICM42688P_get6AxisRawData(device)){ continue; }
 
-		cnt++;
+		offset[0] += device->raw.xacc;
+		offset[1] += device->raw.yacc;
+		offset[2] += device->raw.zacc;
+		offset[3] += device->raw.xgyro;
+		offset[4] += device->raw.ygyro;
+		offset[5] += device->raw.zgyro;
 	}
 
 	offset[0] *= (-1/samples);
@@ -114,15 +132,15 @@ uint8_t ICM42688P_CalibrateOffset(int samples)
 	offset[4] *= (-1/samples);
 	offset[5] *= (-1/samples);
 
-	ICM42688P_writebyte(OFFSET_USER0, offset[0]&0xFF);
-	ICM42688P_writebyte(OFFSET_USER1, ( ((offset[0]>>8)&0xF) | ((offset[1]>>8)&0xF)<<4) );
-	ICM42688P_writebyte(OFFSET_USER2, offset[1]&0xFF);
-	ICM42688P_writebyte(OFFSET_USER3, offset[2]&0xFF);
-	ICM42688P_writebyte(OFFSET_USER4, ( ((offset[2]>>8)&0xF) | ((offset[3]>>8)&0xF)<<4) );
-	ICM42688P_writebyte(OFFSET_USER5, offset[3]&0xFF);
-	ICM42688P_writebyte(OFFSET_USER6, offset[4]&0xFF);
-	ICM42688P_writebyte(OFFSET_USER7, ( ((offset[4]>>8)&0xF) | ((offset[5]>>8)&0xF)<<4));
-	ICM42688P_writebyte(OFFSET_USER8, offset[5]&0xFF);
+	SPI_writebyte(bus, OFFSET_USER0, offset[0]&0xFF);
+	SPI_writebyte(bus, OFFSET_USER1, ( ((offset[0]>>8)&0xF) | ((offset[1]>>8)&0xF)<<4) );
+	SPI_writebyte(bus, OFFSET_USER2, offset[1]&0xFF);
+	SPI_writebyte(bus, OFFSET_USER3, offset[2]&0xFF);
+	SPI_writebyte(bus, OFFSET_USER4, ( ((offset[2]>>8)&0xF) | ((offset[3]>>8)&0xF)<<4) );
+	SPI_writebyte(bus, OFFSET_USER5, offset[3]&0xFF);
+	SPI_writebyte(bus, OFFSET_USER6, offset[4]&0xFF);
+	SPI_writebyte(bus, OFFSET_USER7, ( ((offset[4]>>8)&0xF) | ((offset[5]>>8)&0xF)<<4));
+	SPI_writebyte(bus, OFFSET_USER8, offset[5]&0xFF);
 
 
 	return 0;
@@ -137,9 +155,9 @@ uint8_t ICM42688P_CalibrateOffset(int samples)
  * @param none
  * @retval none
  */
-void ICM42688P_convertGyroRaw2Dps(void)
+void ICM42688P_convertGyroRaw2Dps(icm42688p_obj* device)
 {
-	SCALED_IMU* imu = icm42688p;
+	SCALED_IMU* imu = &(device->data);
 	float sensitivity = param.ins.imu0.gyro.sensitivity;
 
 	// m degree
@@ -159,9 +177,9 @@ void ICM42688P_convertGyroRaw2Dps(void)
  * @param none
  * @retval none
  */
-void ICM42688P_convertAccRaw2G(void)
+void ICM42688P_convertAccRaw2G(icm42688p_obj* device)
 {
-	SCALED_IMU* imu = icm42688p;
+	SCALED_IMU* imu = &(device->data);
 	float sensitivity = param.ins.imu0.acc.sensitivity;
 
 	// mG
@@ -178,11 +196,14 @@ void ICM42688P_convertAccRaw2G(void)
  * @detail RAW_IMU에 저장
  * @retval 0
  */
-int ICM42688P_get6AxisRawData(RAW_IMU* imu)
+int ICM42688P_get6AxisRawData(icm42688p_obj* device)
 {
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
+	RAW_IMU* imu = &(device->raw);
+
 	uint8_t data[14];
 
-	ICM42688P_readbytes(TEMP_DATA1, sizeof(data)/sizeof(data[0]), data);
+	SPI_readbytes(bus, TEMP_DATA1, sizeof(data)/sizeof(data[0]), data);
 
 	imu->time_usec = msg.system_time.time_unix_usec;
 	imu->temperature = (data[0] << 8) | data[1];
@@ -203,14 +224,15 @@ int ICM42688P_get6AxisRawData(RAW_IMU* imu)
  * @detail 레지스터로부터 로드
  * @retval 0 : 완료
  */
-int ICM42688P_getSensitivity(void)
+int ICM42688P_getSensitivity(icm42688p_obj* device)
 {
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
 	float sensitivity;
 
-	uint8_t gyro_reg_val = ICM42688P_readbyte(GYRO_CONFIG0);
+	uint8_t gyro_reg_val = SPI_readbyte(bus, GYRO_CONFIG0);
 	uint8_t gyro_fs_sel = (gyro_reg_val >> 5) & 0x07;
 
-	uint8_t acc_reg_val = ICM42688P_readbyte(ACCEL_CONFIG0);
+	uint8_t acc_reg_val = SPI_readbyte(bus, ACCEL_CONFIG0);
 	uint8_t acc_fs_sel = (acc_reg_val >> 5) & 0x07;
 
 	switch (gyro_fs_sel)
@@ -248,71 +270,19 @@ int ICM42688P_getSensitivity(void)
  * 		값 수신하기 전 확인
  * @retval 0 : 완료
  */
-int ICM42688P_dataReady(void)
+int ICM42688P_dataReady(icm42688p_obj* device)
 {
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
+
 	uint8_t temp = 0;
-	temp =ICM42688P_readbyte(INT_STATUS);
+	temp =SPI_readbyte(bus, INT_STATUS);
 
 	if((temp>>3)&0x01) return 0;
+
 	return 1;
 }
 
 
 /* Functions 2 ---------------------------------------------------------------*/
-inline static void CHIP_SELECT(void)
-{
-	LL_GPIO_ResetOutputPin(GYRO1_NSS_GPIO_Port, GYRO1_NSS_Pin);
-}
-
-inline static void CHIP_DESELECT(void)
-{
-	LL_GPIO_SetOutputPin(GYRO1_NSS_GPIO_Port, GYRO1_NSS_Pin);
-}
-
-
-uint8_t ICM42688P_readbyte(uint8_t reg_addr)
-{
-	uint8_t val;
-
-	CHIP_SELECT();
-	SPI_SendByte(DEVICE_SPI, reg_addr | 0x80); //Register. MSB 1 is read instruction.
-	val = SPI_SendByte(DEVICE_SPI, 0x00); //Send DUMMY to read data
-	CHIP_DESELECT();
-	
-	return val;
-}
-
-void ICM42688P_readbytes(unsigned char reg_addr, unsigned char len, unsigned char* data)
-{
-	unsigned int i = 0;
-
-	CHIP_SELECT();
-	SPI_SendByte(DEVICE_SPI, reg_addr | 0x80); //Register. MSB 1 is read instruction.
-	while(i < len)
-	{
-		data[i++] = SPI_SendByte(DEVICE_SPI, 0x00); //Send DUMMY to read data
-	}
-	CHIP_DESELECT();
-}
-
-void ICM42688P_writebyte(uint8_t reg_addr, uint8_t val)
-{
-	CHIP_SELECT();
-	SPI_SendByte(DEVICE_SPI, reg_addr & 0x7F); //Register. MSB 0 is write instruction.
-	SPI_SendByte(DEVICE_SPI, val); //Send Data to write
-	CHIP_DESELECT();
-}
-
-void ICM42688P_writebytes(unsigned char reg_addr, unsigned char len, unsigned char* data)
-{
-	unsigned int i = 0;
-	CHIP_SELECT();
-	SPI_SendByte(DEVICE_SPI, reg_addr & 0x7F); //Register. MSB 0 is write instruction.
-	while(i < len)
-	{
-		SPI_SendByte(DEVICE_SPI, data[i++]); //Send Data to write
-	}
-	CHIP_DESELECT();
-}
 
 

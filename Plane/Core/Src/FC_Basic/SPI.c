@@ -12,21 +12,30 @@
 
 
 
+
+
 /* Functions -----------------------------------------------------------------*/
 /*
  * @brief SPI 활성화
- * @detail
- * 		SPI가 활성화 되어있지 않으면, 활성화함.
- * @param
- * 		SPI_TypeDef* spi : SPI 주소 (ex. SPI1)
- * @retval
- * 		None
+ * @param SPI_DeviceConfig_t* device
+ * @retval None
  */
-void SPI_Enable(SPI_TypeDef* spi){
-	if(!LL_SPI_IsEnabled(spi)){
-		LL_SPI_Enable(spi);
-	}
+void SPI_Enable(SPI_DeviceConfig_t* spi_cfg){
+	if(LL_SPI_IsEnabled(spi_cfg->spi_interface)) return;
+
+	LL_SPI_Enable(spi_cfg->spi_interface);
 	return;
+}
+
+
+void SPI_ChipSelect(SPI_DeviceConfig_t* spi_cfg)
+{
+	LL_GPIO_ResetOutputPin(spi_cfg->cs_port, spi_cfg->cs_pin);
+}
+
+void SPI_ChipDiselect(SPI_DeviceConfig_t* spi_cfg)
+{
+	LL_GPIO_SetOutputPin(spi_cfg->cs_port, spi_cfg->cs_pin);
 }
 
 
@@ -50,32 +59,56 @@ uint8_t SPI_SendByte(SPI_TypeDef* spi, uint8_t data)
 	return LL_SPI_ReceiveData8(spi);
 }
 
+unsigned char SPI1_SendByte(unsigned char data) { SPI_SendByte(SPI1, data); }
+unsigned char SPI2_SendByte(unsigned char data) { SPI_SendByte(SPI2, data); }
+unsigned char SPI3_SendByte(unsigned char data) { SPI_SendByte(SPI3, data); }
 
-unsigned char SPI1_SendByte(unsigned char data)
+
+uint8_t SPI_readbyte(SPI_DeviceConfig_t* spi_cfg, uint8_t reg_addr)
 {
-	while(LL_SPI_IsActiveFlag_TXE(SPI1)==RESET);
-	LL_SPI_TransmitData8(SPI1, data);
+	uint8_t val;
 
-	while(LL_SPI_IsActiveFlag_RXNE(SPI1)==RESET);
-	return LL_SPI_ReceiveData8(SPI1);
+	SPI_ChipSelect(spi_cfg);
+
+	SPI_SendByte(spi_cfg->spi_interface, reg_addr | 0x80); //Register. MSB 1 is read instruction.
+	val = SPI_SendByte(spi_cfg->spi_interface, 0x00); //Send DUMMY to read data
+
+	SPI_ChipDiselect(spi_cfg);
+
+	return val;
 }
 
-
-unsigned char SPI2_SendByte(unsigned char data)
+void SPI_readbytes(SPI_DeviceConfig_t* spi_cfg, unsigned char reg_addr, unsigned char len, unsigned char* data)
 {
-	while(LL_SPI_IsActiveFlag_TXE(SPI2)==RESET);
-	LL_SPI_TransmitData8(SPI2, data);
+	SPI_ChipSelect(spi_cfg);
+	SPI_SendByte(spi_cfg->spi_interface, reg_addr | 0x80); //Register. MSB 1 is read instruction.
 
-	while(LL_SPI_IsActiveFlag_RXNE(SPI2)==RESET);
-	return LL_SPI_ReceiveData8(SPI2);
+	for(unsigned int i=0; i < len; i++)
+	{
+		data[i] = SPI_SendByte(spi_cfg->spi_interface, 0x00); //Send DUMMY to read data
+	}
+	SPI_ChipDiselect(spi_cfg);
 }
 
-
-unsigned char SPI3_SendByte(unsigned char data)
+void SPI_writebyte(SPI_DeviceConfig_t* spi_cfg, uint8_t reg_addr, uint8_t val)
 {
-	while(LL_SPI_IsActiveFlag_TXE(SPI3)==RESET);
-	LL_SPI_TransmitData8(SPI3, data);
+	SPI_ChipSelect(spi_cfg);
 
-	while(LL_SPI_IsActiveFlag_RXNE(SPI3)==RESET);
-	return LL_SPI_ReceiveData8(SPI3);
+	SPI_SendByte(spi_cfg->spi_interface, reg_addr & 0x7F); //Register. MSB 0 is write instruction.
+	SPI_SendByte(spi_cfg->spi_interface, val); //Send Data to write
+
+	SPI_ChipDiselect(spi_cfg);
 }
+
+void SPI_writebytes(SPI_DeviceConfig_t* spi_cfg, unsigned char reg_addr, unsigned char len, unsigned char* data)
+{
+	SPI_ChipSelect(spi_cfg);
+	SPI_SendByte(spi_cfg->spi_interface, reg_addr & 0x7F); //Register. MSB 0 is write instruction.
+
+	for(unsigned int i=0; i < len; i++)
+	{
+		SPI_SendByte(spi_cfg->spi_interface, data[i]); //Send Data to write
+	}
+	SPI_ChipDiselect(spi_cfg);
+}
+
