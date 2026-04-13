@@ -27,7 +27,7 @@ extern RAW_IMU raw_imu;
 
 
 /* Functions -----------------------------------------------------------------*/
-unsigned int IMU_getDataRaw(void);
+
 
 
 #endif /* INC_FC_IMU_IMU_H_ */

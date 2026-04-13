@@ -1,6 +1,5 @@
 /*
  * ICM42688P.c
- * FC_AHRS/FC_IMU/ICM42688P/ICM42688P.c
  *
  *  Created on: May 1, 2025
  *      Author: leecurrent04
@@ -23,7 +22,12 @@ icm42688p_handle_t ICM42688P_Create(const icm42688p_cfg_t* user_config)
 	if(0 == handle) { return 0; }
 
 	icm42688p_obj*  device = (icm42688p_obj*)handle;
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
+
 	device->config = *user_config;
+
+	SPI_Enable(bus);
+	SPI_ChipDiselect(bus);
 
 	return handle;
 }
@@ -31,7 +35,7 @@ icm42688p_handle_t ICM42688P_Create(const icm42688p_cfg_t* user_config)
 
 uint8_t ICM42688P_Del(icm42688p_handle_t handle)
 {
-	if(0 == handle) { return 1; }
+	if(0 == handle) { return 2; }
 	free(handle);
 
 	return 0;
@@ -46,11 +50,10 @@ uint8_t ICM42688P_Del(icm42688p_handle_t handle)
  */
 uint8_t ICM42688P_Initialization(icm42688p_handle_t handle)
 {
+	if(0 == handle) { return 2; }
+
 	icm42688p_obj* device = (icm42688p_obj*)handle;
 	SPI_DeviceConfig_t* bus = &(device->config.bus);
-
-	SPI_Enable(bus);
-	SPI_ChipDiselect(bus);
 
 	if(SPI_readbyte(bus, WHO_AM_I) != 0x47) { return 1; }
 
@@ -83,12 +86,14 @@ uint8_t ICM42688P_Initialization(icm42688p_handle_t handle)
  * @detail 자이로, 가속도 및 온도 데이터 로딩, 물리량 변환
  * @retval 0 : 완료
  */
-uint8_t ICM42688P_GetData(icm42688p_handle_t handle)
+uint8_t ICM42688P_GetData(icm42688p_handle_t handle, SCALED_IMU* imu)
 {
+	if(0 == handle) return 2;
+	if(0 == imu) return 3;
+
 	icm42688p_obj* device = (icm42688p_obj*)handle;
 
-	// Check data is ready
-	if(ICM42688P_dataReady(device)) return 1;
+	if(ICM42688P_dataReady(device)) return 1;	// Check data is ready
 
 	ICM42688P_get6AxisRawData(device);
 
@@ -97,6 +102,18 @@ uint8_t ICM42688P_GetData(icm42688p_handle_t handle)
 	ICM42688P_convertGyroRaw2Dps(device);
 	ICM42688P_convertAccRaw2G(device);
 
+	*imu = device->data;
+
+	return 0;
+}
+
+uint8_t ICM42688P_GetRawData(icm42688p_handle_t handle, RAW_IMU* imu)
+{
+	if(0 == handle) return 2;
+	if(0 == imu) return 3;
+
+	icm42688p_obj* device = (icm42688p_obj*)handle;
+	*imu = device->raw;
 	return 0;
 }
 
@@ -281,8 +298,5 @@ int ICM42688P_dataReady(icm42688p_obj* device)
 
 	return 1;
 }
-
-
-/* Functions 2 ---------------------------------------------------------------*/
 
 

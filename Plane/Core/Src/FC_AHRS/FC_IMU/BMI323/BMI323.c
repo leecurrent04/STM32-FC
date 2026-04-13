@@ -20,45 +20,71 @@
 
 
 /* Variables -----------------------------------------------------------------*/
-// 출력 결과를 저장하는 변수의 주소를 저장.
-SCALED_IMU* bmi323;
 
 
 /* Functions -----------------------------------------------------------------*/
+bmi323_handle_t BMI323_Create(const bmi323_cfg_t* user_config)
+{
+	bmi323_handle_t handle = malloc(sizeof(bmi323_obj));
+
+	if(0 == handle) { return 0; }
+
+	bmi323_obj*  device = (bmi323_obj*)handle;
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
+
+	device->config = *user_config;
+
+	SPI_Enable(bus);
+	SPI_ChipDiselect(bus);
+
+	return handle;
+}
+
+
+uint8_t BMI323_Del(bmi323_handle_t handle)
+{
+	if(0 == handle) { return 2; }
+	free(handle);
+
+	return 0;
+}
+
+
 /*
  * @brief 초기 설정
  * @detail SPI 연결 수행, 감도 설정, offset 제거
+ * 		datasheet p.15
+ * 		who am i
+ * 		power check
  * @retval 0 : 완료
  *         -1 : 센서 에러
  */
-uint8_t BMI323_Initialization(SCALED_IMU* p)
+uint8_t BMI323_Initialization(bmi323_handle_t handle)
 {
-	bmi323 = p;
+	if(0 == handle) { return 1; }
 
-	/*
-	 * datasheet p.15
-	 * who am i
-	 * power check
-	 */
+	bmi323_obj* device = (bmi323_obj*)handle;
+	SPI_DeviceConfig_t bus = device->config.bus;
+
 
 	uint16_t temp = 0;
 
-	SPI_Enable(DEVICE_SPI);
-	CHIP_DESELECT();
+	SPI_Enable(&bus);
+	SPI_ChipDiselect(&bus);
 
 	// Testing communication and initializing the device
-	temp |= ((BMI323_readbyte(CHIP_ID)==0x43)<<0);
+	temp |= ((BMI323_readbyte(device, CHIP_ID)==0x43)<<0);
 
 	// Checking the correct initialization status
-	temp |= ((BMI323_readbyte(ERR_REG)==0x00)<<1);
+	temp |= ((BMI323_readbyte(device, ERR_REG)==0x00)<<1);
 
 	// power up detected : 0
-	temp |= ((BMI323_checkNBit(STATUS, 0)==0)<<2);
+	temp |= ((BMI323_checkNBit(device, STATUS, 0)==0)<<2);
 
 
 //	 Configure the device for normal power mode
-	BMI323_writebyte(ACC_CONF, 0x70A9);
-	BMI323_writebyte(GYR_CONF, 0x70C9);
+	BMI323_writebyte(device, ACC_CONF, 0x70A9);
+	BMI323_writebyte(device, GYR_CONF, 0x70C9);
 
 // Configure the device for high performance power mode
 //	BMI323_writebyte(ACC_CONF, 0x4027);
@@ -76,16 +102,19 @@ uint8_t BMI323_Initialization(SCALED_IMU* p)
  *         1 : isn't ready
  *         2 : sensor error
  */
-uint8_t BMI323_GetData()
+uint8_t BMI323_GetData(bmi323_handle_t handle, SCALED_IMU* imu)
 {
-	uint8_t retVal = BMI323_dataReady();
+	bmi323_obj* device = (bmi323_obj*)handle;
+
+	uint8_t retVal = BMI323_dataReady(device);
 	if(retVal) return retVal;
 
-	BMI323_get6AxisRawData();
+	BMI323_get6AxisRawData(device);
 
 	BMI323_convertGyroRaw2Dps();
 	BMI323_convertAccRaw2G();
 
+	*imu = device->data;
 
 	return 0;
 }
@@ -101,10 +130,10 @@ uint8_t BMI323_GetData()
  * @retval
  * 		uint8_t 0 or 1
  */
-uint16_t BMI323_checkNBit(uint8_t addr, uint8_t n)
+uint16_t BMI323_checkNBit(bmi323_obj* device, uint8_t addr, uint8_t n)
 {
 	uint16_t temp = 0;
-	temp = BMI323_readbyte(addr);
+	temp = BMI323_readbyte(device, addr);
 
 	return ((temp>>n)&0x1);
 }
@@ -115,10 +144,10 @@ uint16_t BMI323_checkNBit(uint8_t addr, uint8_t n)
  *         1 : isn't ready
  *         2 : sensor error
  */
-uint8_t BMI323_dataReady(void)
+uint8_t BMI323_dataReady(bmi323_obj* device)
 {
 	uint16_t temp = 0;
-	temp = BMI323_readbyte(STATUS);
+	temp = BMI323_readbyte(device, STATUS);
 
 	// check error
 	if(temp&0xFF1F) return  0x2;
@@ -134,13 +163,13 @@ uint8_t BMI323_dataReady(void)
  * @detail SCALED_IMU2에 저장.
  * @retval None
  */
-void BMI323_get6AxisRawData(void)
+void BMI323_get6AxisRawData(bmi323_obj* device)
 {
-	SCALED_IMU* imu = bmi323;
+	SCALED_IMU* imu = &(device->data);
 
 	uint16_t data[7] = {0,};
 
-	BMI323_readbytes(ACC_DATA_X, sizeof(data)/sizeof(data[0]), &data[0]);
+	BMI323_readbytes(device, ACC_DATA_X, sizeof(data)/sizeof(data[0]), &data[0]);
 
 	imu->time_boot_ms = msg.system_time.time_boot_ms;
 
@@ -200,66 +229,61 @@ void BMI323_convertAccRaw2G(void)
 
 
 /* Functions 2 ---------------------------------------------------------------*/
-inline static void CHIP_SELECT(void)
-{
-	LL_GPIO_ResetOutputPin(GYRO2_NSS_GPIO_Port, GYRO2_NSS_Pin);
-}
-
-inline static void CHIP_DESELECT(void)
-{
-	LL_GPIO_SetOutputPin(GYRO2_NSS_GPIO_Port, GYRO2_NSS_Pin);
-}
 
 
-uint16_t BMI323_readbyte(uint8_t reg_addr)
+uint16_t BMI323_readbyte(bmi323_obj* device, uint8_t reg_addr)
 {
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
+
 	uint16_t val=0;
 	uint8_t* p = (uint8_t*)&val;
 
-	CHIP_SELECT();
+	SPI_ChipSelect(bus);
 
-	SPI_SendByte(DEVICE_SPI, reg_addr | 0x80); //Register. MSB 1 is read instruction.
-	SPI_SendByte(DEVICE_SPI, 0x00); //Send DUMMY to read data
+	SPI_SendByte(bus->spi_interface, reg_addr | 0x80); //Register. MSB 1 is read instruction.
+	SPI_SendByte(bus->spi_interface, 0x00); //Send DUMMY to read data
 
-	p[0] = SPI_SendByte(DEVICE_SPI, 0x00); //Send DUMMY to read data
-	p[1] = SPI_SendByte(DEVICE_SPI, 0x00); //Send DUMMY to read data
+	p[0] = SPI_SendByte(bus->spi_interface, 0x00); //Send DUMMY to read data
+	p[1] = SPI_SendByte(bus->spi_interface, 0x00); //Send DUMMY to read data
 
-	CHIP_DESELECT();
+	SPI_ChipDiselect(bus);
 
 	return val;
 }
 
-void BMI323_readbytes(uint8_t reg_addr, uint8_t len, uint16_t* data)
+void BMI323_readbytes(bmi323_obj* device, uint8_t reg_addr, uint8_t len, uint16_t* data)
 {
-	CHIP_SELECT();
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
+	SPI_ChipSelect(bus);
 
-	SPI_SendByte(DEVICE_SPI, reg_addr | 0x80); //Register. MSB 1 is read instruction.
-	SPI_SendByte(DEVICE_SPI, 0x00); //Send DUMMY to read data
+	SPI_SendByte(bus->spi_interface, reg_addr | 0x80); //Register. MSB 1 is read instruction.
+	SPI_SendByte(bus->spi_interface, 0x00); //Send DUMMY to read data
 
 	for(int i=0; i<len; i++)
 	{
 		uint8_t* p = (uint8_t*)&data[i];
-		p[0] = SPI_SendByte(DEVICE_SPI, 0x00);
-		p[1] = SPI_SendByte(DEVICE_SPI, 0x00);
+		p[0] = SPI_SendByte(bus->spi_interface, 0x00); //Send DUMMY to read data
+		p[1] = SPI_SendByte(bus->spi_interface, 0x00); //Send DUMMY to read data
 	}
 
-	CHIP_DESELECT();
+	SPI_ChipDiselect(bus);
 	return;
 }
 
 
-void BMI323_writebyte(uint8_t reg_addr, uint16_t val)
+void BMI323_writebyte(bmi323_obj* device, uint8_t reg_addr, uint16_t val)
 {
+	SPI_DeviceConfig_t* bus = &(device->config.bus);
 	uint8_t* p = (uint8_t*)&val;
 
-	CHIP_SELECT();
+	SPI_ChipSelect(bus);
 
-	SPI_SendByte(DEVICE_SPI, reg_addr & 0x7F); //Register. MSB 0 is write instruction.
+	SPI_SendByte(bus->spi_interface, reg_addr & 0x7F); //Register. MSB 0 is write instruction.
 
-	SPI_SendByte(DEVICE_SPI, p[0]); //Send Data to write
-	SPI_SendByte(DEVICE_SPI, p[1]); //Send Data to write
+	SPI_SendByte(bus->spi_interface, p[0]); //Send Data to write
+	SPI_SendByte(bus->spi_interface, p[1]); //Send Data to write
 
-	CHIP_DESELECT();
+	SPI_ChipDiselect(bus);
 }
 
 

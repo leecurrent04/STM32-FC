@@ -14,6 +14,8 @@
 #include <stdint.h>
 #include <FC_Basic/SPI.h>
 
+#include <FC_Serial/MiniLink/MiniLink.h>
+
 
 /* Variables -----------------------------------------------------------------*/
 typedef enum {
@@ -27,14 +29,13 @@ typedef enum {
     ICM42688P_DRIVE_BOOST
 } icm42688p_drive_mode_t;
 
-/* --- Grouped Configuration Struct --- */
 typedef struct {
     SPI_DeviceConfig_t bus;
 
     struct {
         icm42688p_lpf_t lpf_config;
         icm42688p_drive_mode_t drive_mode;
-        uint8_t accel_odr; // Using enums here is better too
+        uint8_t accel_odr; // TODO : odr emum
         uint8_t gyro_odr;
     } settings;
 } icm42688p_cfg_t;
@@ -48,7 +49,8 @@ icm42688p_handle_t ICM42688P_Create(const icm42688p_cfg_t* user_config);
 uint8_t ICM42688P_Del(icm42688p_handle_t handle);
 
 uint8_t ICM42688P_Initialization(icm42688p_handle_t handle);
-uint8_t ICM42688P_GetData(icm42688p_handle_t handle);
+uint8_t ICM42688P_GetData(icm42688p_handle_t handle, SCALED_IMU* imu);
+uint8_t ICM42688P_GetRawData(icm42688p_handle_t handle, RAW_IMU* imu);
 uint8_t ICM42688P_CalibrateOffset(icm42688p_handle_t handle, int samples);
 
 

@@ -22,27 +22,28 @@
 
 
 /* Macros --------------------------------------------------------------------*/
-#define DEVICE_SPI (SPI3)
 
 
 /* Variables -----------------------------------------------------------------*/
+typedef struct{
+	bmi323_cfg_t config;
+	SCALED_IMU data;
+	RAW_IMU raw;
+} bmi323_obj;
 
 
 /* Functions 1 ---------------------------------------------------------------*/
-uint16_t BMI323_checkNBit(uint8_t addr, uint8_t n);
-uint8_t BMI323_dataReady(void);
+uint16_t BMI323_checkNBit(bmi323_obj* device, uint8_t addr, uint8_t n);
+uint8_t BMI323_dataReady(bmi323_obj* device);
 void BMI323_convertGyroRaw2Dps(void);
 void BMI323_convertAccRaw2G(void);
-void BMI323_get6AxisRawData(void);
+void BMI323_get6AxisRawData(bmi323_obj* device);
 
 
 /* Functions 2 ---------------------------------------------------------------*/
-inline static void CHIP_SELECT(void);
-inline static void CHIP_DESELECT(void);
-
-uint16_t BMI323_readbyte(uint8_t reg_addr);
-void BMI323_readbytes(uint8_t reg_addr, uint8_t len, uint16_t* data);
-void BMI323_writebyte(uint8_t reg_addr, uint16_t val);
+uint16_t BMI323_readbyte(bmi323_obj* device, uint8_t reg_addr);
+void BMI323_readbytes(bmi323_obj* device, uint8_t reg_addr, uint8_t len, uint16_t* data);
+void BMI323_writebyte(bmi323_obj* device, uint8_t reg_addr, uint16_t val);
 
 
 #endif /* INC_FC_AHRS_FC_IMU_BMI323_BMI321_H_ */
